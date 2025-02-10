@@ -1,0 +1,619 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Parameters:
+  SuspName:
+    Type: String
+    Default: "uae"
+    Description: Prefix for naming resources
+  Region:
+    Type: String
+    Default: "me-central-1"
+    Description: Default region for AWS resources
+  VpcCidr:
+    Type: String
+    Default: "172.28.0.0/16"
+    Description: VPC CIDR block
+  CidrPriv1:
+    Type: String
+    Default: "172.28.32.0/20"
+    Description: Private Subnet 1 CIDR block
+  CidrPriv2:
+    Type: String
+    Default: "172.28.48.0/20"
+    Description: Private Subnet 2 CIDR block
+  CidrPub1:
+    Type: String
+    Default: "172.28.0.0/20"
+    Description: Public Subnet 1 CIDR block
+  CidrPub2:
+    Type: String
+    Default: "172.28.16.0/20"
+    Description: Public Subnet 2 CIDR block
+  AzSub1:
+    Type: String
+    Default: "me-central-1a"
+    Description: Availability Zone for Subnet 1
+  AzSub2:
+    Type: String
+    Default: "me-central-1b"
+    Description: Availability Zone for Subnet 2
+  OfficeIp:
+    Type: String
+    Default: "47.206.85.4/32"
+    Description: Office IP for security group ingress
+  JamesIp:
+    Type: String
+    Default: "70.126.10.157/32"
+    Description: Static IP for James
+  ProdCIDR:
+    Type: String
+    Default: "172.31.0.0/16"
+    Description: Production CIDR block
+  VantaOwner:
+    Type: String
+    Default: "etunyiashime@eicatalyst.com"
+    Description: Default owner for Vanta resources
+
+Resources:
+  MyVpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCidr
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: !Sub "${SuspName}-vpc"
+        - Key: VantaOwner
+          Value: !Ref VantaOwner
+
+  PrivateSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref MyVpc
+      CidrBlock: !Ref CidrPriv1
+      AvailabilityZone: !Ref AzSub1
+      Tags:
+        - Key: Name
+          Value: !Sub "${SuspName}-private1"
+
+  PrivateSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref MyVpc
+      CidrBlock: !Ref CidrPriv2
+      AvailabilityZone: !Ref AzSub2
+      Tags:
+        - Key: Name
+          Value: !Sub "${SuspName}-private2"
+
+  PublicSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref MyVpc
+      CidrBlock: !Ref CidrPub1
+      AvailabilityZone: !Ref AzSub1
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub "${SuspName}-public1"
+
+  PublicSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref MyVpc
+      CidrBlock: !Ref CidrPub2
+      AvailabilityZone: !Ref AzSub2
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub "${SuspName}-public2"
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub "${SuspName}-igw"
+
+  AttachGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref MyVpc
+      InternetGatewayId: !Ref InternetGateway
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref MyVpc
+      Tags:
+        - Key: Name
+          Value: !Sub "${SuspName}-pub-rt"
+
+  PublicRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: "0.0.0.0/0"
+      GatewayId: !Ref InternetGateway
+
+  PublicRouteTableAssoc1:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet1
+      RouteTableId: !Ref PublicRouteTable
+
+  PublicRouteTableAssoc2:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet2
+      RouteTableId: !Ref PublicRouteTable
+
+  NatEIP:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+
+  NatGateway:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt NatEIP.AllocationId
+      SubnetId: !Ref PublicSubnet1
+      Tags:
+        - Key: Name
+          Value: !Sub "${SuspName}-natgw"
+
+  PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref MyVpc
+      Tags:
+        - Key: Name
+          Value: !Sub "${SuspName}-priv-rt"
+
+  PrivateRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      DestinationCidrBlock: "0.0.0.0/0"
+      NatGatewayId: !Ref NatGateway
+
+  PrivateRouteTableAssoc1:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnet1
+      RouteTableId: !Ref PrivateRouteTable
+
+  PrivateRouteTableAssoc2:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnet2
+      RouteTableId: !Ref PrivateRouteTable
+
+  AppServerSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub "${SuspName}-app-sg"
+      GroupDescription: "Allow tcp and ssh"
+      VpcId: !Ref MyVpc
+      Tags:
+        - Key: Name
+          Value: "${SuspName}-app-server-sg"
+
+  AppIngressLbPort80:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref AppServerSG
+      Description: "port 80 lb-sg"
+      FromPort: 80
+      ToPort: 80
+      IpProtocol: tcp
+      SourceSecurityGroupId: !Ref LbSG
+
+  AppIngressVpnPort22:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref AppServerSG
+      Description: "port 22 to vpn-sg"
+      FromPort: 22
+      ToPort: 22
+      IpProtocol: tcp
+      SourceSecurityGroupId: !Ref ClientVpnSG
+
+  AppIngressLbPort443:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref AppServerSG
+      Description: "port 443 to lb-sg"
+      FromPort: 443
+      ToPort: 443
+      IpProtocol: tcp
+      SourceSecurityGroupId: !Ref LbSG
+
+  AppIngressOfficeIp:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref AppServerSG
+      Description: "port 22 office ip"
+      FromPort: 22
+      ToPort: 22
+      IpProtocol: tcp
+      CidrIp: !Ref OfficeIp
+
+  AppIngressRedisPort0:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref AppServerSG
+      Description: "all redis-sg"
+      FromPort: 0
+      ToPort: 65535
+      IpProtocol: -1
+      SourceSecurityGroupId: !Ref RedisSG
+
+  AppIngressMetabasePort3000:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref AppServerSG
+      Description: "for metabase access"
+      FromPort: 3000
+      ToPort: 3000
+      IpProtocol: tcp
+      SourceSecurityGroupId: !Ref LbSG
+
+  AppEgressAll:
+    Type: AWS::EC2::SecurityGroupEgress
+    Properties:
+      GroupId: !Ref AppServerSG
+      FromPort: 0
+      ToPort: 0
+      IpProtocol: -1
+      CidrIp: "0.0.0.0/0"
+
+  AppEgressAllIPv6:
+    Type: AWS::EC2::SecurityGroupEgress
+    Properties:
+      GroupId: !Ref AppServerSG
+      FromPort: 0
+      ToPort: 0
+      IpProtocol: -1
+      CidrIpv6: "::/0"
+
+  RdsSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub "${SuspName}-rds-sg"
+      GroupDescription: "Allow access from app servers"
+      VpcId: !Ref MyVpc
+      Tags:
+        - Key: Name
+          Value: "${SuspName}-rds-sg"
+
+  RdsIngressApp:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref RdsSG
+      Description: "app-server-sg"
+      FromPort: 3306
+      ToPort: 3306
+      IpProtocol: "tcp"
+      SourceSecurityGroupId: !Ref AppServerSG
+
+  RdsIngressOfficeIP:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref RdsSG
+      Description: "office-ip"
+      FromPort: 3306
+      ToPort: 3306
+      IpProtocol: "tcp"
+      CidrIp: !Ref OfficeIp
+
+  RdsIngressVpn:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref RdsSG
+      Description: "client-vpn security group"
+      FromPort: 3306
+      ToPort: 3306
+      IpProtocol: "tcp"
+      SourceSecurityGroupId: !Ref ClientVpnSG
+
+  RdsIngressProdCIDR:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref RdsSG
+      Description: "allow communication with prod db for backups"
+      FromPort: 3306
+      ToPort: 3306
+      IpProtocol: "tcp"
+      CidrIp: !Ref ProdCIDR
+
+  RdsEgressAllIPv6:
+    Type: AWS::EC2::SecurityGroupEgress
+    Properties:
+      GroupId: !Ref RdsSG
+      FromPort: 0
+      ToPort: 0
+      IpProtocol: "-1"
+      CidrIpv6: "::/0"
+
+  RdsEgressAllIPv4:
+    Type: AWS::EC2::SecurityGroupEgress
+    Properties:
+      GroupId: !Ref RdsSG
+      FromPort: 0
+      ToPort: 0
+      IpProtocol: "-1"
+      CidrIp: "0.0.0.0/0"
+
+  RedisSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub "${SuspName}-redis-sg"
+      GroupDescription: "Allow access from application server"
+      VpcId: !Ref MyVpc
+      Tags:
+        - Key: Name
+          Value: "${SuspName}-redis-sg"
+
+  RedisIngressInternal:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref RedisSG
+      Description: "tcp ports with redis sg"
+      FromPort: 0
+      ToPort: 65535
+      IpProtocol: "tcp"
+      SourceSecurityGroupId: !Ref RedisSG
+
+  RedisIngressApp:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref RedisSG
+      Description: "app-server-sg"
+      FromPort: 0
+      ToPort: 65535
+      IpProtocol: "-1"
+      SourceSecurityGroupId: !Ref AppServerSG
+
+  RedisEgressAllIPv6:
+    Type: AWS::EC2::SecurityGroupEgress
+    Properties:
+      GroupId: !Ref RedisSG
+      FromPort: 0
+      ToPort: 0
+      IpProtocol: "-1"
+      CidrIpv6: "::/0"
+
+  RedisEgressAllIPv4:
+    Type: AWS::EC2::SecurityGroupEgress
+    Properties:
+      GroupId: !Ref RedisSG
+      FromPort: 0
+      ToPort: 0
+      IpProtocol: "-1"
+      CidrIp: "0.0.0.0/0"
+
+  LbSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub "${SuspName}-lb-sg"
+      GroupDescription: "Allow inbound from application instances"
+      VpcId: !Ref MyVpc
+      Tags:
+        - Key: Name
+          Value: "${SuspName}-load-bal-sg"
+
+  LbIngress80IPv6:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref LbSG
+      Description: "port 80 to vpc"
+      FromPort: 80
+      ToPort: 80
+      IpProtocol: "tcp"
+      CidrIpv6: "::/0"
+
+  LbIngress80IPv4:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref LbSG
+      Description: "port 80 to vpc"
+      FromPort: 80
+      ToPort: 80
+      IpProtocol: "tcp"
+      CidrIp: "0.0.0.0/0"
+
+  LbIngress443IPv6:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref LbSG
+      Description: "port 443 to vpc"
+      FromPort: 443
+      ToPort: 443
+      IpProtocol: "tcp"
+      CidrIpv6: "::/0"
+
+  LbIngress443IPv4:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref LbSG
+      Description: "port 443 to vpc"
+      FromPort: 443
+      ToPort: 443
+      IpProtocol: "tcp"
+      CidrIp: "0.0.0.0/0"
+
+  LbEgressAllIPv6:
+    Type: AWS::EC2::SecurityGroupEgress
+    Properties:
+      GroupId: !Ref LbSG
+      FromPort: 0
+      ToPort: 0
+      IpProtocol: "-1"
+      CidrIpv6: "::/0"
+
+  LbEgressAllIPv4:
+    Type: AWS::EC2::SecurityGroupEgress
+    Properties:
+      GroupId: !Ref LbSG
+      FromPort: 0
+      ToPort: 0
+      IpProtocol: "-1"
+      CidrIp: "0.0.0.0/0"
+
+  IntEndpointSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub "${SuspName}-int-endpoint-sg"
+      GroupDescription: "allow internal access to aws services"
+      VpcId: !Ref MyVpc
+      Tags:
+        - Key: Name
+          Value: "${SuspName}-int-endpoint-sg"
+
+  IntEndpointIngress:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref IntEndpointSG
+      Description: "vpc-cidr"
+      FromPort: 443
+      ToPort: 443
+      IpProtocol: "tcp"
+      CidrIp: !Ref VpcCidr
+
+  IntEndpointEgressAllIPv6:
+    Type: AWS::EC2::SecurityGroupEgress
+    Properties:
+      GroupId: !Ref IntEndpointSG
+      FromPort: 0
+      ToPort: 0
+      IpProtocol: "-1"
+      CidrIpv6: "::/0"
+
+  IntEndpointEgressAllIPv4:
+    Type: AWS::EC2::SecurityGroupEgress
+    Properties:
+      GroupId: !Ref IntEndpointSG
+      FromPort: 0
+      ToPort: 0
+      IpProtocol: "-1"
+      CidrIp: "0.0.0.0/0"
+
+  ClientVpnSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub "${SuspName}-vpn-sg"
+      GroupDescription: "secure access for client vpn"
+      VpcId: !Ref MyVpc
+      Tags:
+        - Key: Name
+          Value: "${SuspName}-client-vpn-sg"
+
+  VpnIngress80IP:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref ClientVpnSG
+      Description: "port 80 static-ips"
+      FromPort: 80
+      ToPort: 80
+      IpProtocol: "tcp"
+      CidrIp: !Ref OfficeIp
+
+  VpnIngress3306IP:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref ClientVpnSG
+      Description: "port 3306 static-ips"
+      FromPort: 3306
+      ToPort: 3306
+      IpProtocol: "tcp"
+      CidrIp: !Ref OfficeIp
+
+  VpnIngress22IP:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref ClientVpnSG
+      Description: "port 22 static-ips"
+      FromPort: 22
+      ToPort: 22
+      IpProtocol: "tcp"
+      CidrIp: !Ref OfficeIp
+
+  VpnIngress443IP:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref ClientVpnSG
+      Description: "port 443 static-ips"
+      FromPort: 443
+      ToPort: 443
+      IpProtocol: "tcp"
+      CidrIp: !Ref OfficeIp
+
+  VpnEgressAllIPv6:
+    Type: AWS::EC2::SecurityGroupEgress
+    Properties:
+      GroupId: !Ref ClientVpnSG
+      FromPort: 0
+      ToPort: 0
+      IpProtocol: "-1"
+      CidrIpv6: "::/0"
+
+  VpnEgressAllIPv4:
+    Type: AWS::EC2::SecurityGroupEgress
+    Properties:
+      GroupId: !Ref ClientVpnSG
+      FromPort: 0
+      ToPort: 0
+      IpProtocol: "-1"
+      CidrIp: "0.0.0.0/0"
+
+  JumpServerSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub "${SuspName}-jump-server-sg"
+      GroupDescription: "public server with inbound access"
+      VpcId: !Ref MyVpc
+      Tags:
+        - Key: Name
+          Value: "${SuspName}-Jump-server-sg"
+
+  JumpServerIngressSSH:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref JumpServerSG
+      Description: "Allow SSH access"
+      FromPort: 22
+      ToPort: 22
+      IpProtocol: "tcp"
+      CidrIp: "0.0.0.0/0"
+
+  JumpServerIngressHTTP:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref JumpServerSG
+      Description: "Allow HTTP access"
+      FromPort: 80
+      ToPort: 80
+      IpProtocol: "tcp"
+      CidrIp: "0.0.0.0/0"
+
+  JumpServerEgressAll:
+    Type: AWS::EC2::SecurityGroupEgress
+    Properties:
+      GroupId: !Ref JumpServerSG
+      FromPort: 0
+      ToPort: 0
+      IpProtocol: "-1"
+      CidrIp: "0.0.0.0/0"
+
+  # rds resources
+  RdsSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: "RDS Subnet Group"
+      SubnetIds:
+        - !Ref PrivateSubnet1
+        - !Ref PrivateSubnet2
+      Tags:
+        - Key: Name
+          Value: !Sub "${SuspName}-rds-priv-group"

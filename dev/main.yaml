@@ -1,0 +1,36 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "Document to create all resources"
+
+Parameters:
+  SuspName:
+    Type: String
+    Default: "dev"
+    Description: Prefix for naming resources
+Resources:
+  iamStack:
+    Type: "AWS::CloudFormation::Stack"
+    Properties:
+      TemplateURL: "./modules/iam.yaml"
+      Parameters:
+        SuspName: !Ref SuspName
+  ssmPatchStack:
+    Type: "AWS::CloudFormation::Stack"
+    Properties:
+      TemplateURL: "./modules/ssmPatch.yaml"
+      Parameters:
+        SuspName: !Ref SuspName
+        SSMRoleArn: !GetAtt iamStack.Outputs.SSMMaintenanceWindowRoleArn
+
+Outputs:
+  UbuntuDocumentName:
+    Description: "The name of the SSM Document"
+    Value: !GetAtt ssmPatchStack.Outputs.UbuntuDocumentName
+  UbuntuMaintenanceWindowId:
+    Description: "The ID of the Maintenance Window"
+    Value: !GetAtt ssmPatchStack.Outputs.UbuntuMaintenanceWindowId
+  SSMMaintenanceWindowRoleName:
+    Description: "The name of the Maintenance Role"
+    Value: !GetAtt iamStack.Outputs.SSMMaintenanceWindowRoleName
+  SSMMaintenanceWindowRoleArn:
+    Description: "The maintenance role arn"
+    Value: !GetAtt iamStack.Outputs.SSMMaintenanceWindowRoleArn

@@ -1,0 +1,88 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "Setup SSM Document and Maintenance Window to Update Ubuntu Instances"
+
+Parameters:
+  SuspName:
+    Type: String
+    Description: Prefix for naming resources
+
+  SSMMaintenanceRoleArn:
+    Type: String
+    Description: "The ARN of the SSM Maintenance Window Role"
+    # Default: !ImportValue
+    #   'Fn::Sub': "${SuspName}-SSMMaintenanceWindowRoleArn"
+
+Resources:
+  # SSM Document
+  UbuntuUpdateDocument:
+    Type: "AWS::SSM::Document"
+    Properties:
+      DocumentType: Command
+      Content:
+        schemaVersion: "2.2"
+        description: "Update Ubuntu instances every Saturday"
+        mainSteps:
+          - action: "aws:runShellScript"
+            name: "updateUbuntu"
+            inputs:
+              runCommand:
+                - "sudo apt-get update -y"
+                - "sudo apt-get upgrade -y"
+      Name: !Sub "${SuspName}-ubuntuInstancesUpdates"
+
+  # Maintenance Window
+  UbuntuMaintenanceWindow:
+    Type: "AWS::SSM::MaintenanceWindow"
+    Properties:
+      Name: !Sub "${SuspName}-UbuntuUpdateMaintenanceWindow"
+      Schedule: "cron(0 23 ? * 1 *)" # Every Sunday at 11:00 PM UTC
+      Duration: 3 # Duration in hours
+      Cutoff: 1 # Stop scheduling new tasks 1 hour before the window ends
+      AllowUnassociatedTargets: false
+      Enabled: true
+
+  # Maintenance Window Target
+  UbuntuMaintenanceWindowTarget:
+    Type: "AWS::SSM::MaintenanceWindowTarget"
+    Properties:
+      WindowId: !Ref UbuntuMaintenanceWindow
+      ResourceType: "INSTANCE"
+      Targets:
+        - Key: tag:Type
+          Values:
+            - ubuntu
+      Name: !Sub "${SuspName}-UbuntuInstancesTarget"
+      Description: Targets Ubuntu instances with tag Type:ubuntu
+
+  # Maintenance Window Task
+  MaintenanceWindowTask:
+    Type: "AWS::SSM::MaintenanceWindowTask"
+    Properties:
+      WindowId: !Ref UbuntuMaintenanceWindow
+      TaskArn: !Ref UbuntuUpdateDocument
+      TaskType: "RUN_COMMAND"
+      ServiceRoleArn: !Ref SSMMaintenanceRoleArn
+      Targets:
+        - Key: "WindowTargetIds"
+          Values:
+            - !Ref UbuntuMaintenanceWindowTarget
+      TaskInvocationParameters:
+        MaintenanceWindowRunCommandParameters:
+          Comment: "Update Ubuntu Instances"
+          TimeoutSeconds: 600
+          Parameters:
+            commands:
+              - "sudo apt-get update -y"
+              - "sudo apt-get upgrade -y"
+      Priority: 1
+      MaxConcurrency: "1"
+      MaxErrors: "1"
+      Name: !Sub "${SuspName}-UbuntuUpdateTask"
+
+Outputs:
+  UbuntuDocumentName:
+    Description: "The name of the SSM Document created"
+    Value: !Ref UbuntuUpdateDocument
+  UbuntuMaintenanceWindowId:
+    Description: "The ID of the Maintenance Window"
+    Value: !Ref UbuntuMaintenanceWindow
