@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Economic Impact Catalyst - System Status</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/moment.js/2.29.1/moment.min.js"></script>
+    <script
+        src="https://cdnjs.cloudflare.com/ajax/libs/moment-timezone/0.5.33/moment-timezone-with-data.min.js"></script>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            line-height: 1.6;
+            margin: 0;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        .header {
+            margin-bottom: 30px;
+            padding-bottom: 20px;
+            border-bottom: 1px solid #eee;
+        }
+
+        .status-card {
+            padding: 20px;
+            border: 1px solid #eee;
+            border-radius: 6px;
+            background: #fff;
+            margin-bottom: 15px;
+        }
+
+        .status-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+
+        .status-indicator {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .status-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+        }
+
+        .operational {
+            background-color: #22c55e;
+        }
+
+        .down {
+            background-color: #ef4444;
+        }
+
+        .refresh-time {
+            text-align: right;
+            color: #666;
+            font-size: 0.9em;
+            margin-top: 20px;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>System Status</h1>
+            <p>Current status of Economic Impact Catalyst Services</p>
+        </div>
+
+        <div class="status-card">
+            <div class="status-header">
+                <h2>economicimpactcatalyst.com</h2>
+                <div class="status-indicator">
+                    <div class="status-dot" id="economicimpactcatalyst-dot"></div>
+                    <span id="economicimpactcatalyst-status">Checking...</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="status-card">
+            <div class="status-header">
+                <h2>startupspace.app</h2>
+                <div class="status-indicator">
+                    <div class="status-dot" id="startupspace-dot"></div>
+                    <span id="startupspace-status">Checking...</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="status-card">
+            <div class="status-header">
+                <h2>eispaces.com</h2>
+                <div class="status-indicator">
+                    <div class="status-dot" id="eispaces-dot"></div>
+                    <span id="eispaces-status">Checking...</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="refresh-time">
+            Last updated: <span id="lastUpdate">Loading...</span>
+        </div>
+    </div>
+
+    <script>
+        function updateStatus() {
+            fetch('status.json')
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('Network response was not ok');
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    // Update economicimpactcatalyst.com status
+                    updateDomainStatus('economicimpactcatalyst.com', data);
+
+                    // Update startupspace.app status
+                    updateDomainStatus('startupspace.app', data);
+
+                    // Update eispaces.com status
+                    updateDomainStatus('eispaces.com', data);
+
+                    // Update last check time
+                    document.getElementById('lastUpdate').textContent =
+                        moment().format('MMMM D, YYYY h:mm:ss A z') + ' ' + moment.tz.guess();
+                })
+                .catch(error => {
+                    console.error('Error fetching status:', error);
+                    document.querySelectorAll('[id$="-status"]').forEach(el => {
+                        el.textContent = 'Error loading status';
+                    });
+                });
+        }
+
+        function updateDomainStatus(domain, data) {
+            const domainId = domain.split('.')[0].toLowerCase();
+            const dot = document.getElementById(`${domainId}-dot`);
+            const statusText = document.getElementById(`${domainId}-status`);
+
+            if (data[domain]) {
+                dot.className = 'status-dot ' + data[domain].status.toLowerCase();
+                statusText.textContent = data[domain].status;
+            } else {
+                dot.className = 'status-dot down';
+                statusText.textContent = 'Unknown';
+            }
+        }
+
+        // Update status immediately and every 60 seconds
+        updateStatus();
+        setInterval(updateStatus, 60000);
+    </script>
+
+</body>
+
+</html>

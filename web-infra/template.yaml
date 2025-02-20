@@ -1,0 +1,139 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: CloudWatch Alarm to S3 Website Status Updater
+
+Resources:
+
+  ## 1. S3 Bucket for Hosting the Status Page
+  WebsiteStatusBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: website-status-bucket
+      AccessControl: PublicRead
+      WebsiteConfiguration:
+        IndexDocument: index.html
+      CorsConfiguration:
+        CorsRules:
+          - AllowedHeaders:
+              - "*"
+            AllowedMethods:
+              - GET
+              - HEAD
+            AllowedOrigins:
+              - "*"
+            MaxAge: 3000
+
+  ## 2. S3 Bucket Policy for Public Access to index.html and status.json
+  S3BucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref WebsiteStatusBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: PublicReadForStatusPage
+            Effect: Allow
+            Principal: "*"
+            Action: s3:GetObject
+            Resource:
+              - !Sub arn:aws:s3:::website-status-bucket/index.html
+              - !Sub arn:aws:s3:::website-status-bucket/status.json
+
+  ## 3. Lambda Function with External Code Reference
+  WebsiteStatusFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: WebsiteStatusUpdater
+      Handler: index.lambda_handler
+      Runtime: python3.9
+      Timeout: 10
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Environment:
+        Variables:
+          S3_BUCKET: website-status-bucket
+      Code:
+        S3Bucket: !Ref DeploymentBucket
+        S3Key: lambda/webStatus.zip
+
+  ## 4. IAM Role for Lambda to Access S3
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: S3WriteAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:GetObject
+                Resource:
+                  - !Sub arn:aws:s3:::website-status-bucket/*
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: "*"
+
+  ## 5. EventBridge Rule to Trigger Lambda on CloudWatch Alarm Changes
+  CloudWatchAlarmEventRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: CloudWatchAlarmStateChangeRule
+      EventPattern:
+        source:
+          - aws.cloudwatch
+        detail-type:
+          - CloudWatch Alarm State Change
+        detail:
+          alarmName:
+            - startupspacedev.com
+            - launchruralok.com
+            - economicimpactcatalyst.com
+            - tolramp.biz
+            - atlinbusiness.com
+            - widen.biz
+            - newboost.org
+            - ulchatt.net
+            - connectms.org
+      Targets:
+        - Arn: !GetAtt WebsiteStatusFunction.Arn
+          Id: WebsiteStatusLambda
+
+  ## 6. Permission for EventBridge to Invoke Lambda
+  LambdaInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref WebsiteStatusFunction
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt CloudWatchAlarmEventRule.Arn
+
+  ## 7. Upload Static Files (index.html and status.json) to S3
+  StaticWebsiteFiles:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: website-status-bucket
+    Metadata:
+      aws:s3:assets:
+        - path: ./static/index.html
+          key: index.html
+        - path: ./static/status.json
+          key: status.json
+
+Outputs:
+  S3WebsiteURL:
+    Description: "URL for the website hosted on S3"
+    Value: !GetAtt WebsiteStatusBucket.WebsiteURL
+
+  LambdaFunctionName:
+    Description: "The name of the Lambda function"
+    Value: !Ref WebsiteStatusFunction
