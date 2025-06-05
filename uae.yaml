@@ -40,10 +40,14 @@ Parameters:
     Type: String
     Default: "47.206.85.4/32"
     Description: Office IP for security group ingress
-  JamesIp:
+  StagingPriv1CIDR:
     Type: String
-    Default: "70.126.10.157/32"
-    Description: Static IP for James
+    Default: "172.25.32.0/20"
+    Description: CIDR for private subnet 1 in staging
+  StagingPriv2CIDR:
+    Type: String
+    Default: "172.25.48.0/20"
+    Description: CIDR for private subnet 2 in staging
   ProdCIDR:
     Type: String
     Default: "172.31.0.0/16"
@@ -197,7 +201,7 @@ Resources:
       VpcId: !Ref MyVpc
       Tags:
         - Key: Name
-          Value: "${SuspName}-app-server-sg"
+          Value: !Sub "${SuspName}-app-server-sg"
 
   AppIngressLbPort80:
     Type: AWS::EC2::SecurityGroupIngress
@@ -259,6 +263,26 @@ Resources:
       IpProtocol: tcp
       SourceSecurityGroupId: !Ref LbSG
 
+  AppIngressStagingSub1:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref AppServerSG
+      Description: "port 22 staging private subnet 1"
+      FromPort: 22
+      ToPort: 22
+      IpProtocol: tcp
+      CidrIp: !Ref StagingPriv1CIDR
+
+  AppIngressStagingSub2:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref AppServerSG
+      Description: "port 22 staging private subnet 2"
+      FromPort: 22
+      ToPort: 22
+      IpProtocol: tcp
+      CidrIp: !Ref StagingPriv2CIDR
+
   AppEgressAll:
     Type: AWS::EC2::SecurityGroupEgress
     Properties:
@@ -285,7 +309,7 @@ Resources:
       VpcId: !Ref MyVpc
       Tags:
         - Key: Name
-          Value: "${SuspName}-rds-sg"
+          Value: !Sub "${SuspName}-rds-sg"
 
   RdsIngressApp:
     Type: AWS::EC2::SecurityGroupIngress
@@ -306,6 +330,26 @@ Resources:
       ToPort: 3306
       IpProtocol: "tcp"
       CidrIp: !Ref OfficeIp
+
+  RdsIngressStagingSub1:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref RdsSG
+      Description: "rds from staging priv-sub-1"
+      FromPort: 3306
+      ToPort: 3306
+      IpProtocol: "tcp"
+      CidrIp: !Ref StagingPriv1CIDR
+
+  RdsIngressStagingSub2:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref RdsSG
+      Description: "rds from staging priv-sub-2"
+      FromPort: 3306
+      ToPort: 3306
+      IpProtocol: "tcp"
+      CidrIp: !Ref StagingPriv2CIDR
 
   RdsIngressVpn:
     Type: AWS::EC2::SecurityGroupIngress
@@ -353,7 +397,7 @@ Resources:
       VpcId: !Ref MyVpc
       Tags:
         - Key: Name
-          Value: "${SuspName}-redis-sg"
+          Value: !Sub "${SuspName}-redis-sg"
 
   RedisIngressInternal:
     Type: AWS::EC2::SecurityGroupIngress
@@ -401,7 +445,7 @@ Resources:
       VpcId: !Ref MyVpc
       Tags:
         - Key: Name
-          Value: "${SuspName}-load-bal-sg"
+          Value: !Sub "${SuspName}-load-bal-sg"
 
   LbIngress80IPv6:
     Type: AWS::EC2::SecurityGroupIngress
@@ -469,7 +513,7 @@ Resources:
       VpcId: !Ref MyVpc
       Tags:
         - Key: Name
-          Value: "${SuspName}-int-endpoint-sg"
+          Value: !Sub "${SuspName}-int-endpoint-sg"
 
   IntEndpointIngress:
     Type: AWS::EC2::SecurityGroupIngress
@@ -507,7 +551,7 @@ Resources:
       VpcId: !Ref MyVpc
       Tags:
         - Key: Name
-          Value: "${SuspName}-client-vpn-sg"
+          Value: !Sub "${SuspName}-client-vpn-sg"
 
   VpnIngress80IP:
     Type: AWS::EC2::SecurityGroupIngress
@@ -575,7 +619,7 @@ Resources:
       VpcId: !Ref MyVpc
       Tags:
         - Key: Name
-          Value: "${SuspName}-Jump-server-sg"
+          Value: !Sub "${SuspName}-Jump-server-sg"
 
   JumpServerIngressSSH:
     Type: AWS::EC2::SecurityGroupIngress

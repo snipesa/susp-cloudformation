@@ -1,0 +1,154 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "CloudFormation template for SSM Parameter Change event triggering Lambda"
+
+Parameters:
+  SuspName:
+    Type: String
+    Default: "dev"
+    Description: Prefix for naming resources
+
+Resources:
+  # IAM Role for Lambda function
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${SuspName}-Lambda-ssm-cloudwatch-ec2"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+        - arn:aws:iam::aws:policy/CloudWatchFullAccess
+        - arn:aws:iam::aws:policy/CloudWatchFullAccessV2
+        - arn:aws:iam::aws:policy/AmazonEC2ReadOnlyAccess
+        - arn:aws:iam::aws:policy/AmazonSSMFullAccess
+      Policies:
+        - PolicyName: SSMParameterAccessPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                  - ssm:GetParameters
+                  - ssm:DescribeParameters
+                Resource:
+                  - !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/*"
+
+  # Lambda function
+  DevUpdateServerEnvFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "${SuspName}-UpdateServerEnv"
+      Handler: index.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Runtime: python3.13
+      Timeout: 20
+      Code:
+        ZipFile: |
+          import boto3
+          import json
+
+          def lambda_handler(event, context):
+              # Get parameter change details from the event
+              parameter_name = event['detail']['name']
+
+              # Check if required parameters
+              if parameter_name not in ['DEV_DB_HOST', 'DEV_DB_PASSWORD']:
+                  print(f"Parameter {parameter_name} not monitored, skipping")
+                  return
+
+              # Initialize AWS clients
+              ec2 = boto3.client('ec2', region_name='us-east-1')
+              ssm = boto3.client('ssm', region_name='us-east-1')
+
+              # Filter EC2 instances by tag and state
+              response = ec2.describe_instances(
+                  Filters=[
+                      {'Name': 'tag:Updates', 'Values': ['ubuntu-yes']},
+                      {'Name': 'instance-state-name', 'Values': ['running']},
+                      {'Name': 'vpc-id', 'Values': ['vpc-00b1fbab09f184c31']}
+                  ]
+              )
+
+              # Extract instance IDs
+              instance_ids = [
+                  instance['InstanceId']
+                  for reservation in response['Reservations']
+                  for instance in reservation['Instances']
+              ]
+
+              if not instance_ids:
+                  print("No running instances found with the specified tag and VPC.")
+                  return {
+                      'statusCode': 404,
+                      'body': json.dumps('No instances found with the specified tag and VPC.')
+                  }
+              
+              # Run the update script using Run Command
+              response = ssm.send_command(
+                  InstanceIds=instance_ids,
+                  DocumentName="AWS-RunShellScript",
+                  Parameters={
+                      'commands': [
+                          'sudo -u ubuntu /home/ubuntu/script_updates/update_env.sh'
+                      ]
+                  },
+                  Comment=f"Update .env file after parameter change: {parameter_name}"
+              )
+
+              command_id = response['Command']['CommandId']
+              print(f"Run Command initiated with ID: {command_id}")
+
+              return {
+                  'statusCode': 200,
+                  'body': json.dumps('Command sent to update .env file')
+              }
+
+  # EventBridge Rule
+  SSMParameterChangeRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub "${SuspName}-SSMParameterChangeRule"
+      Description: "Rule to detect SSM Parameter Store changes for specific parameters"
+      EventPattern:
+        source:
+          - "aws.ssm"
+        detail-type:
+          - "Parameter Store Change"
+        detail:
+          name:
+            - "DEV_DB_HOST"
+            - "DEV_DB_PASSWORD"
+          operation:
+            - "Update"
+      State: ENABLED
+      Targets:
+        - Arn: !GetAtt DevUpdateServerEnvFunction.Arn
+          Id: "LambdaTarget"
+
+  # Permission for EventBridge to invoke Lambda
+  LambdaInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref DevUpdateServerEnvFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt SSMParameterChangeRule.Arn
+
+Outputs:
+  LambdaFunction:
+    Description: "Lambda function ARN"
+    Value: !GetAtt DevUpdateServerEnvFunction.Arn
+
+  EventRule:
+    Description: "EventBridge rule ARN"
+    Value: !GetAtt SSMParameterChangeRule.Arn
+
+  RoleName:
+    Description: "IAM Role Name"
+    Value: !Ref LambdaExecutionRole

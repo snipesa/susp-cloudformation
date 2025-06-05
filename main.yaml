@@ -48,6 +48,10 @@ Parameters:
     Type: String
     Default: "172.31.0.0/16"
     Description: Production CIDR block
+  VpnCIDR:
+    Type: String
+    Default: "10.6.0.0/20"
+    Description: NordLayer VPN CIDR block
   VantaOwner:
     Type: String
     Default: "etunyiashime@eicatalyst.com"
@@ -239,6 +243,16 @@ Resources:
       IpProtocol: tcp
       CidrIp: !Ref OfficeIp
 
+  AppIngressNordLayerPort22:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref AppServerSG
+      Description: "port 22 nord vpn"
+      FromPort: 22
+      ToPort: 22
+      IpProtocol: tcp
+      CidrIp: !Ref VpnCIDR
+
   AppIngressRedisPort0:
     Type: AWS::EC2::SecurityGroupIngress
     Properties:
@@ -306,6 +320,16 @@ Resources:
       ToPort: 3306
       IpProtocol: "tcp"
       CidrIp: !Ref OfficeIp
+
+  RdsIngressNordLayer:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref RdsSG
+      Description: "NordLayer VPN CIDR"
+      FromPort: 3306
+      ToPort: 3306
+      IpProtocol: "tcp"
+      CidrIp: !Ref VpnCIDR
 
   RdsIngressVpn:
     Type: AWS::EC2::SecurityGroupIngress
