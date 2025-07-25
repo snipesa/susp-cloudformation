@@ -1,0 +1,150 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: CloudFormation template to create an S3 bucket for a static maintenance page and a CloudFront distribution with HTTPS for a custom domain.
+
+Parameters:
+  DomainName:
+    Type: String
+    Description: The domain name for the maintenance page (e.g., yourdomain.com)
+    Default: economiccatalyst.com
+  SubDomain:
+    Type: String
+    Description: Optional subdomain (leave empty if not needed)
+    Default: www
+
+Resources:
+  # S3 Bucket for Static Website Hosting
+  MaintenanceBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "economiccatalyst-maintenance-${AWS::AccountId}-${AWS::Region}"
+      WebsiteConfiguration:
+        IndexDocument: index.html
+        ErrorDocument: index.html
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: false
+        IgnorePublicAcls: false
+        BlockPublicPolicy: false
+        RestrictPublicBuckets: false
+      Tags:
+        - Key: Name
+          Value: MaintenanceBucket
+        - Key: Purpose
+          Value: MaintenancePage
+
+  # S3 Bucket Policy for Public Read Access
+  MaintenanceBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    DependsOn: MaintenanceBucket
+    Properties:
+      Bucket: !Ref MaintenanceBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: PublicReadGetObject
+            Effect: Allow
+            Principal: "*"
+            Action: "s3:GetObject"
+            Resource: !Sub "arn:aws:s3:::${MaintenanceBucket}/*"
+
+  # ACM Certificate for HTTPS (must be in us-east-1 for CloudFront)
+  MaintenanceCertificate:
+    Type: AWS::CertificateManager::Certificate
+    Properties:
+      DomainName: !Ref DomainName
+      SubjectAlternativeNames:
+        - !If
+          - HasSubDomain
+          - !Sub "${SubDomain}.${DomainName}"
+          - !Ref AWS::NoValue
+      ValidationMethod: DNS
+      Tags:
+        - Key: Name
+          Value: MaintenanceCertificate
+
+  # CloudFront Distribution
+  MaintenanceCloudFrontDistribution:
+    Type: AWS::CloudFront::Distribution
+    DependsOn:
+      - MaintenanceBucketPolicy
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        HttpVersion: http2
+        DefaultRootObject: index.html
+        Origins:
+          - Id: S3Origin
+            DomainName: !Sub "${MaintenanceBucket}.s3-website-${AWS::Region}.amazonaws.com"
+            CustomOriginConfig:
+              HTTPPort: 80
+              HTTPSPort: 443
+              OriginProtocolPolicy: http-only
+        DefaultCacheBehavior:
+          TargetOriginId: S3Origin
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods:
+            - GET
+            - HEAD
+            - OPTIONS
+          CachedMethods:
+            - GET
+            - HEAD
+          ForwardedValues:
+            QueryString: false
+            Cookies:
+              Forward: none
+          Compress: true
+          DefaultTTL: 300 # 5 minutes for maintenance page
+          MinTTL: 0
+          MaxTTL: 86400 # 1 day max
+        ViewerCertificate:
+          AcmCertificateArn: !Ref MaintenanceCertificate
+          SslSupportMethod: sni-only
+          MinimumProtocolVersion: TLSv1.2_2021
+        Aliases:
+          - !Ref DomainName
+          - !If
+            - HasSubDomain
+            - !Sub "${SubDomain}.${DomainName}"
+            - !Ref AWS::NoValue
+        Comment: !Sub "Maintenance page distribution for ${DomainName}"
+      Tags:
+        - Key: Name
+          Value: MaintenanceCloudFrontDistribution
+
+Conditions:
+  HasSubDomain: !Not [!Equals [!Ref SubDomain, ""]]
+
+Outputs:
+  S3BucketName:
+    Description: Name of the S3 bucket
+    Value: !Ref MaintenanceBucket
+    Export:
+      Name: !Sub "${AWS::StackName}-S3BucketName"
+
+  S3WebsiteEndpoint:
+    Description: S3 Website Endpoint URL
+    Value: !GetAtt MaintenanceBucket.WebsiteURL
+    Export:
+      Name: !Sub "${AWS::StackName}-S3WebsiteURL"
+
+  CloudFrontDomainName:
+    Description: CloudFront Distribution Domain Name
+    Value: !GetAtt MaintenanceCloudFrontDistribution.DomainName
+    Export:
+      Name: !Sub "${AWS::StackName}-CloudFrontDomain"
+
+  CloudFrontDistributionId:
+    Description: CloudFront Distribution ID
+    Value: !Ref MaintenanceCloudFrontDistribution
+    Export:
+      Name: !Sub "${AWS::StackName}-CloudFrontDistributionId"
+
+  CertificateArn:
+    Description: ARN of the ACM Certificate
+    Value: !Ref MaintenanceCertificate
+    Export:
+      Name: !Sub "${AWS::StackName}-CertificateArn"
+
+  CertificateValidationRecords:
+    Description: Certificate validation records (check ACM console for exact values)
+    Value: "Check ACM console in us-east-1 for DNS validation records"

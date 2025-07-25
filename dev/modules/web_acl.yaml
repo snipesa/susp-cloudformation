@@ -1,0 +1,219 @@
+I have my web acl deployed via the console, but i want to manage it via CloudFormation.
+Give me the code to create a web acl with the following rules: NB it should not be with respect to import 
+Just create everthing afresh so I can deploy in a new region for example.
+
+1. I have the following ip sets:
+- Block_ip_addresses   description: "IP addresses to block"
+- client_ips_with_vpn  description: "Client IPs with VPN"
+- ClientIPs  description: "Client IPs"
+- dev_nat_gateway_ip
+- DevTeamIPs
+- phillippinesOPS
+- SP-PROD-IPRangesForClients
+- stripe_webhook_notification
+- tempIPSForPROD
+- Test_IP_Set
+- Vanta
+- zScalerSet
+
+2. I have the following rule groups:
+a.) - AllowApprovedCountries.  description: "Allow approved countries"
+Capacity: 4. 
+The rule json is as below:
+{
+  "Name": "Geo_allow_listed_countries",
+  "Priority": 0,
+  "Action": {
+    "Block": {}
+  },
+  "VisibilityConfig": {
+    "SampledRequestsEnabled": true,
+    "CloudWatchMetricsEnabled": true,
+    "MetricName": "Geo_allow_listed_countries"
+  },
+  "Statement": {
+    "AndStatement": {
+      "Statements": [
+        {
+          "NotStatement": {
+            "Statement": {
+              "GeoMatchStatement": {
+                "CountryCodes": [
+                  "AU",
+                  "BE",
+                  "BA",
+                  "BW",
+                  "BR",
+                  "CA",
+                  "KY",
+                  "CO",
+                  "DO",
+                  "ER",
+                  "ET",
+                  "GM",
+                  "GH",
+                  "IE",
+                  "IT",
+                  "JP",
+                  "KE",
+                  "LS",
+                  "LR",
+                  "MW",
+                  "MY",
+                  "MU",
+                  "MX",
+                  "MZ",
+                  "NA",
+                  "NL",
+                  "NG",
+                  "PH",
+                  "PL",
+                  "RW",
+                  "LC",
+                  "SC",
+                  "SL",
+                  "SO",
+                  "ZA",
+                  "SS",
+                  "ES",
+                  "SD",
+                  "SZ",
+                  "TZ",
+                  "TH",
+                  "TR",
+                  "UG",
+                  "GB",
+                  "US",
+                  "UM",
+                  "VI",
+                  "IN"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "NotStatement": {
+            "Statement": {
+              "GeoMatchStatement": {
+                "CountryCodes": [
+                  "CM",
+                  "JM",
+                  "SG",
+                  "TG",
+                  "TN",
+                  "AE",
+                  "VN",
+                  "ZM",
+                  "ZW",
+                  "PR"
+                ]
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}
+
+3. The web ACL has the following properties:
+- Name: "ProdWebACL"
+- Description: "Web ACL for production environment"
+- Scope: "REGIONAL"
+- DefaultAction: "ALLOW"
+
+Rule1:
+- Name: "AllowApprovedCountries"
+the json referencing the AllowApprovedCountries.
+{
+  "Name": "Geo_allowed_countries",
+  "Priority": 0,
+  "Statement": {
+    "RuleGroupReferenceStatement": {
+      "ARN": "arn:aws:wafv2:us-east-1:922325206296:regional/rulegroup/Geo_allow_listed_countries/381ac35d-6dc9-437e-b2fd-14b98cee5653"
+    }
+  },
+  "OverrideAction": {
+    "None": {}
+  },
+  "VisibilityConfig": {
+    "SampledRequestsEnabled": true,
+    "CloudWatchMetricsEnabled": true,
+    "MetricName": "Geo_allowed_countries"
+  }
+}
+ NB: the json values may need to be corrected as modifications to the appropiate values and names
+
+Rule2: 
+Name: "RateLimitUserTimeSpend"
+The json is as below:
+{
+  "Name": "RateLimitUserTimeSpend",
+  "Priority": 3,
+  "Action": {
+    "Block": {}
+  },
+  "VisibilityConfig": {
+    "SampledRequestsEnabled": true,
+    "CloudWatchMetricsEnabled": true,
+    "MetricName": "RateLimitUserTimeSpend"
+  },
+  "Statement": {
+    "RateBasedStatement": {
+      "Limit": 1200,
+      "AggregateKeyType": "IP",
+      "EvaluationWindowSec": 300,
+      "ScopeDownStatement": {
+        "ByteMatchStatement": {
+          "FieldToMatch": {
+            "UriPath": {}
+          },
+          "PositionalConstraint": "CONTAINS",
+          "SearchString": "/addUpdateUserTimeSpend",
+          "TextTransformations": [
+            {
+              "Type": "NONE",
+              "Priority": 0
+            }
+          ]
+        }
+      }
+    }
+  }
+}
+
+Rules: 4
+
+Name: Ip_exceptions:
+allow the following IP sets:
+below is the json. Not the json below has just two ip sets but it should be modified to include all the ip sets mentioned above.
+{
+  "Name": "VPNExceptions",
+  "Priority": 6,
+  "Action": {
+    "Allow": {}
+  },
+  "VisibilityConfig": {
+    "SampledRequestsEnabled": true,
+    "CloudWatchMetricsEnabled": true,
+    "MetricName": "VPNExceptions"
+  },
+  "Statement": {
+    "OrStatement": {
+      "Statements": [
+        {
+          "IPSetReferenceStatement": {
+            "ARN": "arn:aws:wafv2:us-east-1:922325206296:regional/ipset/SP-PROD-IPRangesForClients/bb763f3e-015c-46f5-8188-2ae668da60dd"
+          }
+        },
+        {
+          "IPSetReferenceStatement": {
+            "ARN": "arn:aws:wafv2:us-east-1:922325206296:regional/ipset/dev_nat_gateway_ip/f2f40f29-1ab1-41f2-9655-18cfdace5ee7"
+          }
+        }
+      ]
+    }
+  }
+}
+
